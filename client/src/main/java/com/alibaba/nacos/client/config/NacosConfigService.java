@@ -19,6 +19,7 @@ package com.alibaba.nacos.client.config;
 import com.alibaba.nacos.api.PropertyKeyConst;
 import com.alibaba.nacos.api.common.Constants;
 import com.alibaba.nacos.api.config.ConfigService;
+import com.alibaba.nacos.api.config.ConfigType;
 import com.alibaba.nacos.api.config.listener.Listener;
 import com.alibaba.nacos.api.exception.NacosException;
 import com.alibaba.nacos.client.config.filter.impl.ConfigFilterChainManager;
@@ -29,6 +30,7 @@ import com.alibaba.nacos.client.config.http.MetricsHttpAgent;
 import com.alibaba.nacos.client.config.http.ServerHttpAgent;
 import com.alibaba.nacos.client.config.impl.ClientWorker;
 import com.alibaba.nacos.client.config.impl.LocalConfigInfoProcessor;
+import com.alibaba.nacos.client.config.impl.LocalEncryptedDataKeyProcessor;
 import com.alibaba.nacos.client.config.utils.ContentUtils;
 import com.alibaba.nacos.client.config.utils.ParamUtils;
 import com.alibaba.nacos.client.utils.LogUtils;
@@ -70,7 +72,7 @@ public class NacosConfigService implements ConfigService {
     
     private final String encode;
     
-    private final ConfigFilterChainManager configFilterChainManager = new ConfigFilterChainManager();
+    private final ConfigFilterChainManager configFilterChainManager;
     
     public NacosConfigService(Properties properties) throws NacosException {
         ValidatorUtils.checkInitParam(properties);
@@ -81,6 +83,7 @@ public class NacosConfigService implements ConfigService {
             this.encode = encodeTmp.trim();
         }
         initNamespace(properties);
+        this.configFilterChainManager = new ConfigFilterChainManager(properties);
         
         this.agent = new MetricsHttpAgent(new ServerHttpAgent(properties));
         this.agent.start();
@@ -112,7 +115,12 @@ public class NacosConfigService implements ConfigService {
     
     @Override
     public boolean publishConfig(String dataId, String group, String content) throws NacosException {
-        return publishConfigInner(namespace, dataId, group, null, null, null, content);
+        return publishConfig(dataId, group, content, ConfigType.getDefaultType().getType());
+    }
+    
+    @Override
+    public boolean publishConfig(String dataId, String group, String content, String type) throws NacosException {
+        return publishConfigInner(namespace, dataId, group, null, null, null, content, type);
     }
     
     @Override
@@ -126,7 +134,7 @@ public class NacosConfigService implements ConfigService {
     }
     
     private String getConfigInner(String tenant, String dataId, String group, long timeoutMs) throws NacosException {
-        group = null2defaultGroup(group);
+        group = blank2defaultGroup(group);
         ParamUtils.checkKeyParam(dataId, group);
         ConfigResponse cr = new ConfigResponse();
         
@@ -140,14 +148,18 @@ public class NacosConfigService implements ConfigService {
             LOGGER.warn("[{}] [get-config] get failover ok, dataId={}, group={}, tenant={}, config={}", agent.getName(),
                     dataId, group, tenant, ContentUtils.truncateContent(content));
             cr.setContent(content);
+            String encryptedDataKey = LocalEncryptedDataKeyProcessor
+                    .getEncryptDataKeyFailover(agent.getName(), dataId, group, tenant);
+            cr.setEncryptedDataKey(encryptedDataKey);
             configFilterChainManager.doFilter(null, cr);
             content = cr.getContent();
             return content;
         }
         
         try {
-            String[] ct = worker.getServerConfig(dataId, group, tenant, timeoutMs);
-            cr.setContent(ct[0]);
+            ConfigResponse response = worker.getServerConfig(dataId, group, tenant, timeoutMs);
+            cr.setContent(response.getContent());
+            cr.setEncryptedDataKey(response.getEncryptedDataKey());
             
             configFilterChainManager.doFilter(null, cr);
             content = cr.getContent();
@@ -165,17 +177,20 @@ public class NacosConfigService implements ConfigService {
                 dataId, group, tenant, ContentUtils.truncateContent(content));
         content = LocalConfigInfoProcessor.getSnapshot(agent.getName(), dataId, group, tenant);
         cr.setContent(content);
+        String encryptedDataKey = LocalEncryptedDataKeyProcessor
+                .getEncryptDataKeyFailover(agent.getName(), dataId, group, tenant);
+        cr.setEncryptedDataKey(encryptedDataKey);
         configFilterChainManager.doFilter(null, cr);
         content = cr.getContent();
         return content;
     }
     
-    private String null2defaultGroup(String group) {
-        return (null == group) ? Constants.DEFAULT_GROUP : group.trim();
+    private String blank2defaultGroup(String group) {
+        return (StringUtils.isBlank(group)) ? Constants.DEFAULT_GROUP : group.trim();
     }
     
     private boolean removeConfigInner(String tenant, String dataId, String group, String tag) throws NacosException {
-        group = null2defaultGroup(group);
+        group = blank2defaultGroup(group);
         ParamUtils.checkKeyParam(dataId, group);
         String url = Constants.CONFIG_CONTROLLER_PATH;
         Map<String, String> params = new HashMap<String, String>(4);
@@ -211,8 +226,8 @@ public class NacosConfigService implements ConfigService {
     }
     
     private boolean publishConfigInner(String tenant, String dataId, String group, String tag, String appName,
-            String betaIps, String content) throws NacosException {
-        group = null2defaultGroup(group);
+            String betaIps, String content, String type) throws NacosException {
+        group = blank2defaultGroup(group);
         ParamUtils.checkParam(dataId, group, content);
         
         ConfigRequest cr = new ConfigRequest();
@@ -228,6 +243,7 @@ public class NacosConfigService implements ConfigService {
         params.put("dataId", dataId);
         params.put("group", group);
         params.put("content", content);
+        params.put("type", type);
         if (StringUtils.isNotEmpty(tenant)) {
             params.put("tenant", tenant);
         }
@@ -236,6 +252,10 @@ public class NacosConfigService implements ConfigService {
         }
         if (StringUtils.isNotEmpty(tag)) {
             params.put("tag", tag);
+        }
+        String dataKey = (String) cr.getParameter("encryptedDataKey");
+        if (StringUtils.isNotEmpty(dataKey)) {
+            params.put("encryptedDataKey", dataKey);
         }
         Map<String, String> headers = new HashMap<String, String>(1);
         if (StringUtils.isNotEmpty(betaIps)) {

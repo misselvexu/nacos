@@ -16,7 +16,7 @@
 
 package com.alibaba.nacos.config.server.result.code;
 
-import com.alibaba.nacos.config.server.result.core.IResultCode;
+import com.alibaba.nacos.common.model.core.IResultCode;
 
 /**
  * ResultCodeEnum.
@@ -47,7 +47,7 @@ public enum ResultCodeEnum implements IResultCode {
     
     DATA_EMPTY(100005, "导入的文件数据为空"),
     
-    NO_SELECTED_CONFIG(100006, "没有选择任何配制");
+    NO_SELECTED_CONFIG(100006, "没有选择任何配置");
     
     private int code;
     

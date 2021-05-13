@@ -43,7 +43,6 @@ import com.alibaba.nacos.naming.web.NamingResourceParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +99,7 @@ public class ServiceController {
     @PostMapping
     @Secured(parser = NamingResourceParser.class, action = ActionTypes.WRITE)
     public String create(@RequestParam(defaultValue = Constants.DEFAULT_NAMESPACE_ID) String namespaceId,
-            @RequestParam String serviceName, @RequestParam(required = false) float protectThreshold,
+            @RequestParam String serviceName, @RequestParam(required = false, defaultValue = "0.0F") float protectThreshold,
             @RequestParam(defaultValue = StringUtils.EMPTY) String metadata,
             @RequestParam(defaultValue = StringUtils.EMPTY) String selector) throws Exception {
         
@@ -215,7 +214,10 @@ public class ServiceController {
             return result;
         }
         
-        serviceNameList.removeIf(serviceName -> !serviceName.startsWith(groupName + Constants.SERVICE_INFO_SPLITER));
+        if (!Constants.ALL_PATTERN.equals(groupName)) {
+            serviceNameList
+                    .removeIf(serviceName -> !serviceName.startsWith(groupName + Constants.SERVICE_INFO_SPLITER));
+        }
         
         if (StringUtils.isNotBlank(selectorString)) {
             
@@ -249,6 +251,11 @@ public class ServiceController {
         int start = (pageNo - 1) * pageSize;
         if (start < 0) {
             start = 0;
+        }
+        if (start >= serviceNameList.size()) {
+            result.replace("doms", JacksonUtils.transferToJsonNode(Collections.emptyList()));
+            result.put("count", serviceNameList.size());
+            return result;
         }
         
         int end = start + pageSize;
@@ -441,8 +448,8 @@ public class ServiceController {
     @Secured(parser = NamingResourceParser.class, action = ActionTypes.READ)
     public ObjectNode subscribers(HttpServletRequest request) {
         
-        int pageNo = NumberUtils.toInt(WebUtils.required(request, "pageNo"));
-        int pageSize = NumberUtils.toInt(WebUtils.required(request, "pageSize"));
+        int pageNo = NumberUtils.toInt(WebUtils.optional(request, "pageNo", "1"));
+        int pageSize = NumberUtils.toInt(WebUtils.optional(request, "pageSize", "1000"));
         
         String namespaceId = WebUtils.optional(request, CommonParams.NAMESPACE_ID, Constants.DEFAULT_NAMESPACE_ID);
         String serviceName = WebUtils.required(request, CommonParams.SERVICE_NAME);
@@ -452,7 +459,7 @@ public class ServiceController {
         ObjectNode result = JacksonUtils.createEmptyJsonNode();
         
         try {
-            List<Subscriber> subscribers = subscribeManager.getSubscribers(serviceName, namespaceId, aggregation);
+            List<Subscriber> subscribers = subscribeManager.getSubscribers(serviceName, namespaceId, aggregation, pageNo, pageSize);
             
             int start = (pageNo - 1) * pageSize;
             if (start < 0) {

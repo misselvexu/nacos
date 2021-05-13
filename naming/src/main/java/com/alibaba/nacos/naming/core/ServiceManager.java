@@ -19,7 +19,9 @@ package com.alibaba.nacos.naming.core;
 import com.alibaba.nacos.api.common.Constants;
 import com.alibaba.nacos.api.exception.NacosException;
 import com.alibaba.nacos.api.naming.utils.NamingUtils;
+import com.alibaba.nacos.common.utils.IPUtil;
 import com.alibaba.nacos.common.utils.JacksonUtils;
+import com.alibaba.nacos.common.utils.Objects;
 import com.alibaba.nacos.core.cluster.Member;
 import com.alibaba.nacos.core.cluster.ServerMemberManager;
 import com.alibaba.nacos.naming.consistency.ConsistencyService;
@@ -59,6 +61,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -238,7 +241,7 @@ public class ServiceManager implements RecordListener<Service> {
             String persistInstanceListKey = KeyBuilder.buildInstanceListKey(namespace, name, false);
             consistencyService.remove(ephemeralInstanceListKey);
             consistencyService.remove(persistInstanceListKey);
-    
+            
             // remove listeners of key to avoid mem leak
             consistencyService.unListen(ephemeralInstanceListKey, service);
             consistencyService.unListen(persistInstanceListKey, service);
@@ -578,7 +581,7 @@ public class ServiceManager implements RecordListener<Service> {
     }
     
     /**
-     * locate consistency's datum by all or instances provided.
+     * Locate consistency's datum by all or instances provided.
      *
      * @param namespaceId        namespace
      * @param serviceName        serviceName
@@ -616,16 +619,15 @@ public class ServiceManager implements RecordListener<Service> {
         return locatedInstance;
     }
     
-    private Instance locateInstance(List<Instance> instances, Instance instance) {
-        int target = 0;
-        while (target >= 0) {
-            target = instances.indexOf(instance);
-            if (target >= 0) {
-                Instance result = instances.get(target);
-                if (result.getClusterName().equals(instance.getClusterName())) {
-                    return result;
-                }
-                instances.remove(target);
+    private Instance locateInstance(List<Instance> sources, Instance target) {
+        if (CollectionUtils.isEmpty(sources)) {
+            return null;
+        }
+        
+        for (Instance element : sources) {
+            //also need clusterName equals, the same instance maybe exist in two cluster.
+            if (Objects.equals(element, target) && Objects.equals(element.getClusterName(), target.getClusterName())) {
+                return element;
             }
         }
         return null;
@@ -809,7 +811,12 @@ public class ServiceManager implements RecordListener<Service> {
             if (UtilsAndCommons.UPDATE_INSTANCE_ACTION_REMOVE.equals(action)) {
                 instanceMap.remove(instance.getDatumKey());
             } else {
-                instance.setInstanceId(instance.generateInstanceId(currentInstanceIds));
+                Instance oldInstance = instanceMap.get(instance.getDatumKey());
+                if (oldInstance != null) {
+                    instance.setInstanceId(oldInstance.getInstanceId());
+                } else {
+                    instance.setInstanceId(instance.generateInstanceId(currentInstanceIds));
+                }
                 instanceMap.put(instance.getDatumKey(), instance);
             }
             
@@ -867,15 +874,16 @@ public class ServiceManager implements RecordListener<Service> {
         if (!serviceMap.containsKey(service.getNamespaceId())) {
             synchronized (putServiceLock) {
                 if (!serviceMap.containsKey(service.getNamespaceId())) {
-                    serviceMap.put(service.getNamespaceId(), new ConcurrentHashMap<>(16));
+                    serviceMap.put(service.getNamespaceId(), new ConcurrentSkipListMap<>());
                 }
             }
         }
-        serviceMap.get(service.getNamespaceId()).put(service.getName(), service);
+        serviceMap.get(service.getNamespaceId()).putIfAbsent(service.getName(), service);
     }
     
     private void putServiceAndInit(Service service) throws NacosException {
         putService(service);
+        service = getService(service.getNamespaceId(), service.getName());
         service.init();
         consistencyService
                 .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true), service);
@@ -933,7 +941,7 @@ public class ServiceManager implements RecordListener<Service> {
         
         if (StringUtils.isNotBlank(param)) {
             StringJoiner regex = new StringJoiner(Constants.SERVICE_INFO_SPLITER);
-            for (String s : param.split(Constants.SERVICE_INFO_SPLITER)) {
+            for (String s : param.split(Constants.SERVICE_INFO_SPLITER, Constants.SERVICE_INFO_SPLIT_COUNT)) {
                 regex.add(StringUtils.isBlank(s) ? Constants.ANY_PATTERN
                         : Constants.ANY_PATTERN + s + Constants.ANY_PATTERN);
             }
@@ -955,8 +963,9 @@ public class ServiceManager implements RecordListener<Service> {
                 contained = false;
                 List<Instance> instances = service.allIPs();
                 for (Instance instance : instances) {
-                    if (containedInstance.contains(":")) {
-                        if (StringUtils.equals(instance.getIp() + ":" + instance.getPort(), containedInstance)) {
+                    if (IPUtil.containsPort(containedInstance)) {
+                        if (StringUtils.equals(instance.getIp() + IPUtil.IP_PORT_SPLITER + instance.getPort(),
+                                containedInstance)) {
                             contained = true;
                             break;
                         }

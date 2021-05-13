@@ -65,6 +65,12 @@ public class PropertyKeyConst {
     
     public static final String NAMING_POLLING_THREAD_COUNT = "namingPollingThreadCount";
     
+    public static final String NAMING_REQUEST_DOMAIN_RETRY_COUNT = "namingRequestDomainMaxRetryCount";
+    
+    public static final String NAMING_PUSH_EMPTY_PROTECTION = "namingPushEmptyProtection";
+    
+    public static final String PUSH_RECEIVER_UDP_PORT = "push.receiver.udp.port";
+    
     /**
      * Get the key value of some variable value from the system property.
      */

@@ -49,7 +49,7 @@ import com.alibaba.nacos.config.server.utils.GroupKey2;
 import com.alibaba.nacos.config.server.utils.LogUtil;
 import com.alibaba.nacos.config.server.utils.TimeUtils;
 import com.alibaba.nacos.core.cluster.ServerMemberManager;
-import com.alibaba.nacos.sys.utils.ApplicationUtils;
+import com.alibaba.nacos.sys.env.EnvUtil;
 import com.alibaba.nacos.sys.utils.InetUtils;
 import com.alibaba.nacos.core.utils.TimerContext;
 import org.slf4j.Logger;
@@ -67,6 +67,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.alibaba.nacos.config.server.utils.LogUtil.DUMP_LOG;
 import static com.alibaba.nacos.config.server.utils.LogUtil.FATAL_LOG;
 
 /**
@@ -203,7 +204,7 @@ public abstract class DumpService {
                         "Nacos Server did not start because dumpservice bean construction failure :\n" + e.getMessage(),
                         e);
             }
-            if (!ApplicationUtils.getStandaloneMode()) {
+            if (!EnvUtil.getStandaloneMode()) {
                 Runnable heartbeat = () -> {
                     String heartBeatTime = TimeUtils.getCurrentTime().toString();
                     // write disk
@@ -305,7 +306,7 @@ public abstract class DumpService {
     private Boolean isQuickStart() {
         try {
             String val = null;
-            val = ApplicationUtils.getProperty("isQuickStart");
+            val = EnvUtil.getProperty("isQuickStart");
             if (val != null && TRUE_STR.equals(val)) {
                 isQuickStart = true;
             }
@@ -317,7 +318,7 @@ public abstract class DumpService {
     }
     
     private int getRetentionDays() {
-        String val = ApplicationUtils.getProperty("nacos.config.retention.days");
+        String val = EnvUtil.getProperty("nacos.config.retention.days");
         if (null == val) {
             return retentionDays;
         }
@@ -343,15 +344,25 @@ public abstract class DumpService {
         dump(dataId, group, tenant, lastModified, handleIp, false);
     }
     
+    /**
+     * Add DumpTask to TaskManager, it will execute asynchronously.
+     */
     public void dump(String dataId, String group, String tenant, long lastModified, String handleIp, boolean isBeta) {
         String groupKey = GroupKey2.getKey(dataId, group, tenant);
-        dumpTaskMgr.addTask(groupKey, new DumpTask(groupKey, lastModified, handleIp, isBeta));
+        String taskKey = String.join("+", dataId, group, tenant, String.valueOf(isBeta));
+        dumpTaskMgr.addTask(taskKey, new DumpTask(groupKey, lastModified, handleIp, isBeta));
+        DUMP_LOG.info("[dump-task] add task. groupKey={}, taskKey={}", groupKey, taskKey);
     }
     
+    /**
+     * Add DumpTask to TaskManager, it will execute asynchronously.
+     */
     public void dump(String dataId, String group, String tenant, String tag, long lastModified, String handleIp,
             boolean isBeta) {
         String groupKey = GroupKey2.getKey(dataId, group, tenant);
-        dumpTaskMgr.addTask(groupKey, new DumpTask(groupKey, tag, lastModified, handleIp, isBeta));
+        String taskKey = String.join("+", dataId, group, tenant, String.valueOf(isBeta), tag);
+        dumpTaskMgr.addTask(taskKey, new DumpTask(groupKey, tag, lastModified, handleIp, isBeta));
+        DUMP_LOG.info("[dump-task] add task. groupKey={}, taskKey={}", groupKey, taskKey);
     }
     
     public void dumpAll() {

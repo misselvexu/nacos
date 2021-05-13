@@ -37,6 +37,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.web.server.LocalServerPort;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -71,6 +72,9 @@ public class ConfigAPI_CITCase {
     
     String group = "yanlin";
     
+    @Value("${server.servlet.context-path}")
+    private String contextPath;
+    
     @LocalServerPort
     private int port;
     
@@ -83,7 +87,7 @@ public class ConfigAPI_CITCase {
     public void setUp() throws Exception {
         Properties properties = new Properties();
         properties.put(PropertyKeyConst.SERVER_ADDR, "127.0.0.1" + ":" + port);
-        properties.put(PropertyKeyConst.CONTEXT_PATH, "/nacos");
+        properties.put(PropertyKeyConst.CONTEXT_PATH, contextPath);
         iconfig = NacosFactory.createConfigService(properties);
         agent = new MetricsHttpAgent(new ServerHttpAgent(properties));
         agent.start();
@@ -362,7 +366,7 @@ public class ConfigAPI_CITCase {
         Listener ml = new Listener() {
             @Override
             public void receiveConfigInfo(String configInfo) {
-                System.out.println("recieve23:" + configInfo);
+                System.out.println("receive23:" + configInfo);
                 count.incrementAndGet();
                 Assert.assertEquals(content, configInfo);
             }
@@ -517,6 +521,7 @@ public class ConfigAPI_CITCase {
         Properties properties = new Properties();
         properties.put(PropertyKeyConst.SERVER_ADDR, "127.0.0.1" + ":" + port);
         properties.put(PropertyKeyConst.ENABLE_REMOTE_SYNC_CONFIG, "true");
+        properties.put(PropertyKeyConst.CONTEXT_PATH, contextPath);
         ConfigService iconfig = NacosFactory.createConfigService(properties);
         
         final AtomicInteger count = new AtomicInteger(0);
@@ -577,7 +582,7 @@ public class ConfigAPI_CITCase {
             iconfig.removeListener(dataId, group, new AbstractListener() {
                 @Override
                 public void receiveConfigInfo(String configInfo) {
-                    System.out.println("remove recieve:" + configInfo);
+                    System.out.println("remove receive:" + configInfo);
                 }
             });
         } catch (Exception e) {
@@ -628,7 +633,7 @@ public class ConfigAPI_CITCase {
         Listener ml1 = new AbstractListener() {
             @Override
             public void receiveConfigInfo(String configInfo) {
-                //System.out.println("ml1 remove listener recieve:" + configInfo);
+                //System.out.println("ml1 remove listener receive:" + configInfo);
                 count.incrementAndGet();
                 Assert.assertEquals(contentRemove, configInfo);
             }
